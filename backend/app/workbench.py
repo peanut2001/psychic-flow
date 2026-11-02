@@ -15,6 +15,7 @@ from .config import Settings
 from .evaluator import compile_scoring_rubric
 from .exporter import build_csv, build_docx, build_json, build_markdown, build_xlsx
 from .lifecycle import TrashType
+from .model_config import current_model_config
 from .models import Evaluation, Job, Resume, ScreeningRun
 from .schemas import EvaluationCard, EvaluationOut, JobOut, ResumeOut, RunOut, ScoringDimensionOut, TrashItem
 
@@ -58,13 +59,14 @@ def create_run_for_resumes(
     供岗位内「筛选已选」与简历池「分配并评估」共用，保证快照口径一致。
     """
 
+    model = current_model_config(settings)
     run = ScreeningRun(
         job_id=job.id,
         jd_snapshot=job.jd_text,
         prompt_snapshot=job.prompt,
         scoring_profile_snapshot=job.scoring_profile,
-        text_model=settings.text_model,
-        vision_model=settings.vision_model,
+        text_model=model.text_model,
+        vision_model=model.vision_model,
         schema_version="2",
         total_count=len(resumes),
     )

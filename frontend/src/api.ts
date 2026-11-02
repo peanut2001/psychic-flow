@@ -1,7 +1,42 @@
 import type { Evaluation, EvaluationPage, Job, JobPasteResult, PoolAssignResult, PoolPasteResult, PoolResume, Resume, Run, RunPage, ScoringKind, ScoringPreview, TrashPage, TrashType } from "./types";
 
+/** 页面填写的模型连接配置，只保存在本浏览器 localStorage。 */
+export type ModelConfig = { apiKey: string; baseUrl: string; textModel: string; visionModel: string };
+
+const MODEL_CONFIG_KEY = "hireflow.model-config";
+
+export function loadModelConfig(): ModelConfig | null {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(MODEL_CONFIG_KEY) || "null") as Partial<ModelConfig> | null;
+    if (!value?.apiKey) return null;
+    return { apiKey: value.apiKey, baseUrl: value.baseUrl || "", textModel: value.textModel || "", visionModel: value.visionModel || "" };
+  } catch {
+    return null;
+  }
+}
+
+export function saveModelConfig(config: ModelConfig) {
+  window.localStorage.setItem(MODEL_CONFIG_KEY, JSON.stringify(config));
+}
+
+export function clearModelConfig() {
+  window.localStorage.removeItem(MODEL_CONFIG_KEY);
+}
+
+/** 有本地配置时，把它放进请求头随请求发给后端；后端只在本次请求及其触发的任务中使用。 */
+function withModelConfig(init?: RequestInit): RequestInit | undefined {
+  const config = loadModelConfig();
+  if (!config) return init;
+  const headers = new Headers(init?.headers);
+  headers.set("X-Model-Api-Key", config.apiKey);
+  if (config.baseUrl) headers.set("X-Model-Base-Url", config.baseUrl);
+  if (config.textModel) headers.set("X-Model-Text", config.textModel);
+  if (config.visionModel) headers.set("X-Model-Vision", config.visionModel);
+  return { ...init, headers };
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+  const response = await fetch(url, withModelConfig(init));
   if (!response.ok) {
     let message = `请求失败（${response.status}）`;
     try {
@@ -17,7 +52,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 async function requestText(url: string): Promise<string> {
-  const response = await fetch(url);
+  const response = await fetch(url, withModelConfig());
   if (!response.ok) {
     let message = `请求失败（${response.status}）`;
     try {
@@ -38,7 +73,11 @@ const json = (body: unknown): RequestInit => ({
 });
 
 export const api = {
-  health: () => request<{ status: string; model_configured: boolean; text_model: string; vision_model: string; vision_enabled: boolean }>("/api/health"),
+  health: () => request<{ status: string; model_configured: boolean; model_source?: "browser" | "env"; text_model: string; vision_model: string; vision_enabled: boolean }>("/api/health"),
+  listModels: (config: Pick<ModelConfig, "apiKey" | "baseUrl">) =>
+    request<{ models: string[] }>("/api/model-config/models", json({ api_key: config.apiKey, base_url: config.baseUrl })),
+  testModel: (config: ModelConfig) =>
+    request<{ ok: boolean; checked_models: string[] }>("/api/model-config/test", json({ api_key: config.apiKey, base_url: config.baseUrl, text_model: config.textModel, vision_model: config.visionModel })),
   previewScoring: (prompt: string) => request<ScoringPreview>("/api/scoring-preview", json({ prompt })),
   jobs: () => request<Job[]>("/api/jobs"),
   job: (id: string) => request<Job>(`/api/jobs/${id}`),

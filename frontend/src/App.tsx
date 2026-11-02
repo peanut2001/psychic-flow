@@ -43,7 +43,7 @@ import {
   X,
 } from "lucide-react";
 
-import { api } from "./api";
+import { api, clearModelConfig, loadModelConfig, saveModelConfig, type ModelConfig } from "./api";
 import type { Evaluation, Job, PoolPasteDuplicate, PoolResume, Resume, Run, ScoringDimension, ScoringKind, ScoringPreview, TrashItem, TrashType } from "./types";
 
 const reviewLabels: Record<Evaluation["review_status"], string> = {
@@ -336,6 +336,58 @@ function PasteResumeDialog({ submit, createdMessage, onClose, onCreated }: {
   </form></div>;
 }
 
+// 请求头只能携带 ASCII，且 key、地址、模型名都不应含空格。
+const asciiToken = /^[\x21-\x7e]*$/;
+
+function ModelSettingsDialog({ defaults, onClose, onChanged }: {
+  defaults: { textModel: string; visionModel: string };
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const notify = useNotify();
+  const saved = loadModelConfig();
+  const [apiKey, setApiKey] = useState(saved?.apiKey || "");
+  const [baseUrl, setBaseUrl] = useState(saved?.baseUrl || "");
+  const [textModel, setTextModel] = useState(saved?.textModel || defaults.textModel);
+  const [visionModel, setVisionModel] = useState(saved?.visionModel || defaults.visionModel);
+  const [showKey, setShowKey] = useState(false);
+  // 模型只能从接口返回的列表中选择；key 或地址变化后列表作废，需要重新获取。
+  const [models, setModels] = useState<string[] | null>(null);
+  const config: ModelConfig = { apiKey: apiKey.trim(), baseUrl: baseUrl.trim(), textModel, visionModel: visionModel || textModel };
+  const invalid = [config.apiKey, config.baseUrl].some((value) => !asciiToken.test(value));
+  const ready = Boolean(config.apiKey && models?.includes(textModel) && (!visionModel || models.includes(visionModel))) && !invalid;
+  const testMutation = useMutation({ mutationFn: () => api.testModel(config) });
+  const modelsMutation = useMutation({
+    mutationFn: () => api.listModels(config),
+    onSuccess: ({ models: list }) => {
+      setModels(list);
+      setTextModel((current) => (list.includes(current) ? current : ""));
+      setVisionModel((current) => (list.includes(current) && current !== textModel ? current : ""));
+    },
+  });
+  useEffect(() => { if (saved) modelsMutation.mutate(); }, []);
+  const editConnection = (setter: (value: string) => void) => (event: { target: { value: string } }) => { setter(event.target.value); setModels(null); modelsMutation.reset(); testMutation.reset(); };
+  const pickModel = (setter: (value: string) => void) => (event: { target: { value: string } }) => { setter(event.target.value); testMutation.reset(); };
+  const save = () => { saveModelConfig(config); notify("模型配置已保存在本浏览器"); onChanged(); onClose(); };
+  const clear = () => { clearModelConfig(); notify("已清除本浏览器的模型配置", "info"); onChanged(); onClose(); };
+  return <div className="modal-backdrop" role="presentation"><form className="modal dossier-form" role="dialog" aria-modal="true" aria-labelledby="model-settings-title" onSubmit={(event) => { event.preventDefault(); if (ready) save(); }}>
+    <div className="modal-heading"><div><span className="eyebrow">MODEL / 模型设置</span><h2 id="model-settings-title">模型连接</h2></div><button className="icon-button" type="button" onClick={onClose} aria-label="关闭"><X /></button></div>
+    <label>API Key<div className="secret-input"><input autoFocus aria-label="API Key" type={showKey ? "text" : "password"} autoComplete="off" spellCheck={false} value={apiKey} onChange={editConnection(setApiKey)} placeholder="sk-..." required /><button type="button" className="text-action" onClick={() => setShowKey((value) => !value)}>{showKey ? "隐藏" : "显示"}</button></div></label>
+    <label>接口地址<div className="secret-input"><input aria-label="接口地址" spellCheck={false} value={baseUrl} onChange={editConnection(setBaseUrl)} placeholder="留空使用 OpenAI 官方；网关地址通常以 /v1 结尾" /><button type="button" className="button quiet" disabled={!config.apiKey || invalid || modelsMutation.isPending} onClick={() => modelsMutation.mutate()}>{modelsMutation.isPending ? <><LoaderCircle className="spin" size={14} />获取中…</> : <><RefreshCw size={14} />获取模型</>}</button></div></label>
+    <div className="model-fields">
+      <label>文本模型<select aria-label="文本模型" value={models ? textModel : ""} disabled={!models} onChange={pickModel(setTextModel)} required><option value="">{models ? "请选择模型" : "先获取模型列表"}</option>{models?.map((model) => <option key={model} value={model}>{model}</option>)}</select></label>
+      <label>视觉模型<select aria-label="视觉模型" value={models ? visionModel : ""} disabled={!models} onChange={pickModel(setVisionModel)}><option value="">{models ? "与文本模型相同" : "先获取模型列表"}</option>{models?.map((model) => <option key={model} value={model}>{model}</option>)}</select></label>
+    </div>
+    {models && <small className="model-list-note">已获取 {models.length} 个模型</small>}
+    <ErrorNotice error={modelsMutation.error} />
+    <p className="privacy-note">只保存在本浏览器（localStorage），每次操作时随请求发给本机后端，后端不保存。简历池身份提取、邮箱附件识图等不由页面发起的后台任务拿不到这里的配置。</p>
+    {invalid && <ErrorNotice error={new Error("API Key 与接口地址只能填写英文、数字和符号，不能含空格或中文")} />}
+    {testMutation.isSuccess && <div className="success-note"><Check size={15} /><span>连接成功：{testMutation.data.checked_models.join("、")}</span></div>}
+    <ErrorNotice error={testMutation.error} />
+    <div className="modal-actions">{saved && <button type="button" className="button quiet model-clear" onClick={clear}>清除配置</button>}<button type="button" className="button quiet" disabled={!ready || testMutation.isPending} onClick={() => testMutation.mutate()}>{testMutation.isPending ? "测试中…" : "测试连接"}</button><button type="submit" className="button primary" disabled={!ready}>保存</button></div>
+  </form></div>;
+}
+
 function JobList({ onOpen, onTrash, onPool }: { onOpen: (id: string) => void; onTrash: () => void; onPool: () => void }) {
   const queryClient = useQueryClient();
   const { data: jobs = [], error, isLoading } = useQuery({ queryKey: ["jobs"], queryFn: api.jobs });
@@ -343,11 +395,12 @@ function JobList({ onOpen, onTrash, onPool }: { onOpen: (id: string) => void; on
   const pool = useQuery({ queryKey: ["pool", "pool"], queryFn: () => api.poolResumes() });
   const poolNewCount = (pool.data || []).filter((item) => !item.evaluation).length;
   const [creating, setCreating] = useState(false);
-  return <main className="landing-shell"><header className="topbar"><div className="brand-mark"><span>HF</span></div><div className="brand-copy"><strong>HireFlow</strong><small>招聘筛选工作台</small></div><div className="topbar-actions"><button className="button quiet" type="button" aria-label="打开简历池" onClick={onPool}><Inbox size={15} />简历池{poolNewCount > 0 && <span className="count-badge">{poolNewCount}</span>}</button><button className="button quiet" type="button" aria-label="打开回收站" onClick={onTrash}><Trash2 size={15} />回收站</button><div className={`health-pill ${health.data?.model_configured ? "ready" : "warn"}`}><span />{health.data?.model_configured ? "模型已连接" : "待配置模型"}</div></div></header>
+  const [modelSettings, setModelSettings] = useState(false);
+  return <main className="landing-shell"><header className="topbar"><div className="brand-mark"><span>HF</span></div><div className="brand-copy"><strong>HireFlow</strong><small>招聘筛选工作台</small></div><div className="topbar-actions"><button className="button quiet" type="button" aria-label="打开简历池" onClick={onPool}><Inbox size={15} />简历池{poolNewCount > 0 && <span className="count-badge">{poolNewCount}</span>}</button><button className="button quiet" type="button" aria-label="打开回收站" onClick={onTrash}><Trash2 size={15} />回收站</button><button type="button" className={`health-pill ${health.data?.model_configured ? "ready" : "warn"}`} aria-label="打开模型设置" title={health.data?.model_configured ? `${health.data.model_source === "browser" ? "使用本浏览器配置" : "使用 .env 配置"} · ${health.data.text_model}` : "点击填写模型 API Key 与地址"} onClick={() => setModelSettings(true)}><span />{health.data?.model_configured ? "模型已连接" : "待配置模型"}<Settings2 size={13} /></button></div></header>
     <section className="hero"><div><span className="eyebrow">RECRUITMENT INTELLIGENCE / 01</span><h1>把筛选依据<br />留在<span>案卷</span>里。</h1></div><div className="hero-aside"><p>同一标准审阅每一份简历，保留原文证据、当前版本和你的最终判断。</p><button className="button primary" onClick={() => setCreating(true)}><Plus size={17} />创建岗位</button></div></section>
     <section className="jobs-section"><div className="section-heading"><div><span className="section-index">A</span><h2>岗位案卷</h2></div><span>{jobs.length.toString().padStart(2, "0")} 份</span></div><ErrorNotice error={error} />
       {isLoading ? <div className="loading-block"><LoaderCircle className="spin" />正在调取案卷</div> : jobs.length === 0 ? <div className="empty-state"><FolderOpen /><h3>还没有岗位案卷</h3><p>先写下岗位 JD 和你的筛选标准，再放入候选人简历。</p><button className="button primary" onClick={() => setCreating(true)}>创建第一个岗位</button></div> : <div className="job-grid">{jobs.map((job, index) => <button className="job-card" key={job.id} onClick={() => onOpen(job.id)}><div className="job-number">{String(index + 1).padStart(2, "0")}</div><BriefcaseBusiness className="job-icon" /><div className="job-card-body"><span>{job.resume_count} 份简历 · {job.run_count} 次筛选</span><h3>{job.name}</h3><p>{job.jd_text}</p></div><div className="job-card-footer"><span>更新于 {dateLabel(job.updated_at)}</span><ChevronRight /></div></button>)}</div>}
-    </section>{creating && <CreateJobDialog onClose={() => setCreating(false)} onCreated={(job) => { queryClient.invalidateQueries({ queryKey: ["jobs"] }); setCreating(false); onOpen(job.id); }} />}</main>;
+    </section>{modelSettings && <ModelSettingsDialog defaults={{ textModel: health.data?.text_model || "", visionModel: health.data?.vision_model || "" }} onClose={() => setModelSettings(false)} onChanged={() => queryClient.invalidateQueries({ queryKey: ["health"] })} />}{creating && <CreateJobDialog onClose={() => setCreating(false)} onCreated={(job) => { queryClient.invalidateQueries({ queryKey: ["jobs"] }); setCreating(false); onOpen(job.id); }} />}</main>;
 }
 
 export function ResumeDesk({ job, onRunCreated }: { job: Job; onRunCreated: (run: Run) => void }) {

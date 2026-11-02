@@ -45,6 +45,29 @@ class ScoringPreviewOut(BaseModel):
     dimensions: list[ScoringDimensionOut]
 
 
+class ModelListRequest(BaseModel):
+    """页面「获取模型」提交的未保存连接信息；只用于本次请求，不保存。"""
+
+    api_key: str = Field(min_length=1, max_length=500)
+    base_url: str | None = Field(default=None, max_length=500)
+
+
+class ModelListOut(BaseModel):
+    models: list[str]
+
+
+class ModelTestRequest(ModelListRequest):
+    """页面「测试连接」提交的未保存配置；只用于本次测试，不保存。"""
+
+    text_model: str = Field(min_length=1, max_length=200)
+    vision_model: str = Field(min_length=1, max_length=200)
+
+
+class ModelTestResult(BaseModel):
+    ok: bool
+    checked_models: list[str]
+
+
 class JobOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

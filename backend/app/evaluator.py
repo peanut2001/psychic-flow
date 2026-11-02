@@ -11,6 +11,7 @@ from typing import Any, Literal, Protocol, Sequence
 from openai import AsyncOpenAI, BadRequestError
 
 from .config import Settings
+from .model_config import ModelConfig, current_model_config, model_session
 from .schemas import Criterion, EvaluationCard, EvaluationDraft
 
 EMPTY_EVALUATION_ERROR = "评估模型未返回结果，不是简历文件解析失败，请重试"
@@ -288,11 +289,12 @@ class OpenAIEvaluator:
             )
         return self._client
 
-    def _requires_json_object(self) -> bool:
+    @staticmethod
+    def _requires_json_object(config: ModelConfig) -> bool:
         """判断兼容接口是否只支持 JSON Object，而不支持 JSON Schema。"""
 
-        base_url = (self.settings.openai_base_url or "").lower()
-        model = self.settings.text_model.lower()
+        base_url = (config.base_url or "").lower()
+        model = config.text_model.lower()
         return "api.deepseek.com" in base_url or model.startswith("deepseek-")
 
     @staticmethod
@@ -344,28 +346,29 @@ class OpenAIEvaluator:
         ]
 
     async def _complete(self, messages: list[dict[str, str]], schema: dict) -> tuple[str | None, str | None]:
-        if self._requires_json_object():
-            response = await self.client.chat.completions.create(
-                model=self.settings.text_model,
-                messages=messages,
-                response_format={"type": "json_object"},
-            )
-        else:
-            try:
-                response = await self.client.chat.completions.create(
-                    model=self.settings.text_model,
-                    messages=messages,
-                    response_format={
-                        "type": "json_schema",
-                        "json_schema": {"name": "evaluation_draft", "strict": True, "schema": schema},
-                    },
-                )
-            except BadRequestError:
-                response = await self.client.chat.completions.create(
-                    model=self.settings.text_model,
+        async with model_session(self.settings, lambda: self.client) as (client, config):
+            if self._requires_json_object(config):
+                response = await client.chat.completions.create(
+                    model=config.text_model,
                     messages=messages,
                     response_format={"type": "json_object"},
                 )
+            else:
+                try:
+                    response = await client.chat.completions.create(
+                        model=config.text_model,
+                        messages=messages,
+                        response_format={
+                            "type": "json_schema",
+                            "json_schema": {"name": "evaluation_draft", "strict": True, "schema": schema},
+                        },
+                    )
+                except BadRequestError:
+                    response = await client.chat.completions.create(
+                        model=config.text_model,
+                        messages=messages,
+                        response_format={"type": "json_object"},
+                    )
         choice = response.choices[0]
         content = choice.message.content
         finish_reason = getattr(choice, "finish_reason", None)
@@ -379,8 +382,8 @@ class OpenAIEvaluator:
         resume_text: str,
         scoring_profile: Sequence[Any] | None = None,
     ) -> EvaluationCard:
-        if not self.settings.openai_api_key:
-            raise RuntimeError("未配置 OPENAI_API_KEY，无法开始筛选")
+        if not current_model_config(self.settings).api_key:
+            raise RuntimeError("未配置模型 API Key，请在首页「模型设置」中填写后重试")
         dimensions = compile_scoring_dimensions(prompt, scoring_profile)
         dimensions_json = json.dumps(
             [

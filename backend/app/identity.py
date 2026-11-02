@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from .config import Settings
+from .model_config import current_model_config, model_session
 from .models import Resume
 from .names import is_real_person_name, should_update_display_name
 
@@ -116,16 +117,17 @@ class OpenAIIdentityExtractor:
         return self._client
 
     async def extract(self, *, resume_text: str) -> IdentityInfo:
-        if not self.settings.openai_api_key:
-            raise RuntimeError("未配置 OPENAI_API_KEY，无法提取候选人身份")
-        response = await self.client.chat.completions.create(
-            model=self.settings.text_model,
-            messages=[
-                {"role": "system", "content": _IDENTITY_SYSTEM_PROMPT},
-                {"role": "user", "content": _IDENTITY_USER_PROMPT.format(resume_text=resume_text)},
-            ],
-            response_format={"type": "json_object"},
-        )
+        if not current_model_config(self.settings).api_key:
+            raise RuntimeError("未配置模型 API Key，无法提取候选人身份")
+        async with model_session(self.settings, lambda: self.client) as (client, config):
+            response = await client.chat.completions.create(
+                model=config.text_model,
+                messages=[
+                    {"role": "system", "content": _IDENTITY_SYSTEM_PROMPT},
+                    {"role": "user", "content": _IDENTITY_USER_PROMPT.format(resume_text=resume_text)},
+                ],
+                response_format={"type": "json_object"},
+            )
         content = response.choices[0].message.content
         if not content:
             raise RuntimeError("身份提取模型未返回结果")

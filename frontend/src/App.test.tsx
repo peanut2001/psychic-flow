@@ -29,6 +29,70 @@ test("展示岗位案卷并允许创建第一个岗位", async () => {
   expect(screen.getByRole("button", { name: "打开简历池" })).toBeInTheDocument();
 });
 
+test("首页可配置模型 key 与地址，保存在浏览器本地并随请求发送", async () => {
+  window.localStorage.clear();
+  const healthHeaders: Headers[] = [];
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === "/api/health") {
+      const headers = new Headers(init?.headers);
+      healthHeaders.push(headers);
+      return new Response(JSON.stringify({ status: "ok", model_configured: headers.has("X-Model-Api-Key"), text_model: "env-text", vision_model: "env-vision", vision_enabled: true }));
+    }
+    if (url === "/api/model-config/models") return new Response(JSON.stringify({ models: ["gpt-6-luna", "gpt-6.1-sol"] }));
+    if (url === "/api/model-config/test") return new Response(JSON.stringify({ ok: true, checked_models: ["gpt-6.1-sol"] }));
+    return new Response(JSON.stringify([]));
+  });
+  const modelListCalls = () => fetchMock.mock.calls.filter(([input]) => String(input) === "/api/model-config/models");
+  vi.stubGlobal("fetch", fetchMock);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={queryClient}><App /></QueryClientProvider>);
+
+  expect(await screen.findByText("待配置模型")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "打开模型设置" }));
+  expect(screen.getByLabelText("文本模型")).toBeDisabled();
+  expect(screen.getByRole("button", { name: "获取模型" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("API Key"), { target: { value: " sk-local " } });
+  fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "https://gw.example/v1" } });
+
+  fireEvent.click(screen.getByRole("button", { name: "获取模型" }));
+  expect(await screen.findByText("已获取 2 个模型")).toBeInTheDocument();
+  expect(modelListCalls()[0][1]).toEqual(expect.objectContaining({ body: JSON.stringify({ api_key: "sk-local", base_url: "https://gw.example/v1" }) }));
+  const textSelect = screen.getByLabelText("文本模型");
+  expect(textSelect).toBeEnabled();
+  expect(textSelect).toHaveValue("");
+  expect(within(textSelect).getAllByRole("option").map((option) => option.textContent)).toEqual(["请选择模型", "gpt-6-luna", "gpt-6.1-sol"]);
+  expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  fireEvent.change(textSelect, { target: { value: "gpt-6.1-sol" } });
+  expect(screen.getByLabelText("视觉模型")).toHaveValue("");
+
+  fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+  expect(await screen.findByText("连接成功：gpt-6.1-sol")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledWith("/api/model-config/test", expect.objectContaining({
+    body: JSON.stringify({ api_key: "sk-local", base_url: "https://gw.example/v1", text_model: "gpt-6.1-sol", vision_model: "gpt-6.1-sol" }),
+  }));
+
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  expect(JSON.parse(window.localStorage.getItem("hireflow.model-config") || "{}")).toEqual({ apiKey: "sk-local", baseUrl: "https://gw.example/v1", textModel: "gpt-6.1-sol", visionModel: "gpt-6.1-sol" });
+  expect(await screen.findByText("模型已连接")).toBeInTheDocument();
+  const latest = healthHeaders[healthHeaders.length - 1];
+  expect(latest.get("X-Model-Api-Key")).toBe("sk-local");
+  expect(latest.get("X-Model-Base-Url")).toBe("https://gw.example/v1");
+  expect(latest.get("X-Model-Text")).toBe("gpt-6.1-sol");
+
+  fireEvent.click(screen.getByRole("button", { name: "打开模型设置" }));
+  await waitFor(() => expect(screen.getByLabelText("文本模型")).toHaveValue("gpt-6.1-sol"));
+  expect(modelListCalls()).toHaveLength(2);
+  fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "https://other.example/v1" } });
+  expect(screen.getByLabelText("文本模型")).toBeDisabled();
+  expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "清除配置" }));
+  expect(window.localStorage.getItem("hireflow.model-config")).toBeNull();
+  expect(await screen.findByText("待配置模型")).toBeInTheDocument();
+  window.localStorage.clear();
+});
+
 test("首页可打开简历池并看到空状态", async () => {
   vi.stubGlobal(
     "fetch",

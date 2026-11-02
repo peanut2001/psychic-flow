@@ -50,6 +50,13 @@ from .lifecycle import (
 )
 from .models import Evaluation, Job, Resume, ScreeningRun
 from .mail_ingest import MailIngester
+from .model_config import (
+    ModelConfig,
+    RequestModelConfigMiddleware,
+    check_model_connection,
+    current_model_config,
+    list_available_models,
+)
 from .runner import ScreeningRunner
 from .schemas import (
     BatchActionResult,
@@ -64,6 +71,10 @@ from .schemas import (
     JobOut,
     JobPasteResult,
     JobUpdate,
+    ModelListOut,
+    ModelListRequest,
+    ModelTestRequest,
+    ModelTestResult,
     PoolAssignRequest,
     PoolAssignResult,
     PoolAssignSkip,
@@ -248,6 +259,8 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # 最后添加 = 最外层：保证 CORS、路由、BackgroundTasks 与路由内创建的任务都能读到请求配置。
+    app.add_middleware(RequestModelConfigMiddleware, settings=runtime_settings)
     app.state.settings = runtime_settings
     app.state.session_factory = session_factory
     app.state.screening_runner = screening_runner
@@ -271,14 +284,50 @@ def create_app(
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:
+        model = current_model_config(runtime_settings)
         return {
             "status": "ok",
             "database": "configured",
-            "text_model": runtime_settings.text_model,
-            "vision_model": runtime_settings.vision_model,
+            "text_model": model.text_model,
+            "vision_model": model.vision_model,
             "vision_enabled": runtime_settings.vision_enabled,
-            "model_configured": bool(runtime_settings.openai_api_key),
+            "model_configured": bool(model.api_key),
+            "model_source": "browser" if model.from_request else "env",
         }
+
+    @app.post("/api/model-config/models", response_model=ModelListOut)
+    async def list_model_options(payload: ModelListRequest) -> ModelListOut:
+        """用页面表单里尚未保存的 key 与地址读取可选模型；不保存任何内容。"""
+
+        config = ModelConfig(
+            api_key=payload.api_key.strip(),
+            base_url=(payload.base_url or "").strip() or None,
+            text_model="",
+            vision_model="",
+            from_request=True,
+        )
+        try:
+            models = await list_available_models(config, runtime_settings)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return ModelListOut(models=models)
+
+    @app.post("/api/model-config/test", response_model=ModelTestResult)
+    async def test_model_config(payload: ModelTestRequest) -> ModelTestResult:
+        """用页面表单里尚未保存的配置实际调用一次模型；不保存任何内容。"""
+
+        config = ModelConfig(
+            api_key=payload.api_key.strip(),
+            base_url=(payload.base_url or "").strip() or None,
+            text_model=payload.text_model.strip(),
+            vision_model=payload.vision_model.strip(),
+            from_request=True,
+        )
+        try:
+            checked = await check_model_connection(config, runtime_settings)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return ModelTestResult(ok=True, checked_models=checked)
 
     @app.get("/api/email/status", response_model=EmailStatusOut)
     def email_status() -> EmailStatusOut:
