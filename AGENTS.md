@@ -2,7 +2,7 @@
 
 ## 项目结构与架构
 
-HireFlow 是本地优先的招聘简历筛选工作台。后端位于 `backend/app/`：`main.py` 提供 FastAPI 接口，`documents.py` 解析 PDF/DOCX，`evaluator.py` 调用模型，`model_config.py` 决定每次模型调用的连接配置（页面随请求头携带的配置优先，否则 `.env`），`identity.py` 提取入池简历的结构化身份（模型 JSON + 正则兜底，轮询循环挂在 `main.py` lifespan），`runner.py` 隔离并发任务，`mail_ingest.py` 通过 IMAP 捕获邮箱简历附件进入「简历池」（轮询循环挂在 `main.py` lifespan，不直接进岗位），`schemas.py` 与 `models.py` 分别是 API 数据结构和数据库实体。数据库迁移放在 `backend/alembic/versions/`，后端测试放在 `backend/tests/`。React/Vite 前端位于 `frontend/src/`，静态资源位于 `frontend/public/`。`data/` 和 `.env` 是本地运行数据，不得提交。
+PsychicFlow（仓库 `psychic-flow`，原名 HireFlow）是本地优先的招聘简历筛选工作台。后端位于 `backend/app/`：`main.py` 提供 FastAPI 接口，`documents.py` 解析 PDF/DOCX，`evaluator.py` 调用模型，`model_config.py` 决定每次模型调用的连接配置（页面随请求头携带的配置优先，否则 `.env`），`identity.py` 提取入池简历的结构化身份（模型 JSON + 正则兜底，轮询循环挂在 `main.py` lifespan），`runner.py` 隔离并发任务，`mail_ingest.py` 通过 IMAP 捕获邮箱简历附件进入「简历池」（轮询循环挂在 `main.py` lifespan，不直接进岗位），`schemas.py` 与 `models.py` 分别是 API 数据结构和数据库实体。数据库迁移放在 `backend/alembic/versions/`，后端测试放在 `backend/tests/`。React/Vite 前端位于 `frontend/src/`，静态资源位于 `frontend/public/`。`data/` 和 `.env` 是本地运行数据，不得提交。
 
 `DocumentProcessor`、`Evaluator`、`ScreeningRunner` 是模块边界；不要在 HTTP 路由中复制解析、评分或调度逻辑。评分协议与总分计算以 `evaluator.py` 和 `schemas.py` 为准。评估卡 `candidate` 中的 `gender`/`age` 仅在简历明确写出时提取，只用于简历池档案筛选，不参与任何维度评分。简历池接口 `GET /api/pool/resumes` 支持 `scope=all`（全库简历）并附当前评估摘要与曾评估岗位（`evaluated_jobs`，来自 completed 评估的去重岗位）；年龄、性别、分数等筛选在前端按该响应本地过滤，后端不做。粘贴文本经 `POST /api/pool/resumes/paste` 入池（`source="paste"`，落盘 `.txt`，`parse_status` 直接 `ready`），未确认时按姓名/邮箱/手机号查重；岗位内也可直接粘贴（`POST /api/jobs/{id}/resumes/paste`，查重限本岗位，含 sha256 完全相同判重，成功即启动单份评分任务）；入池简历（邮箱 + 粘贴）`identity_status="pending"`，由后台循环提取 `identity_*` 列并补 `display_name`，岗位直传为 `none` 不提取。
 
@@ -21,6 +21,8 @@ docker compose down                     # 停止服务，保留数据卷
 本地前端使用 `npm run dev`；后端可运行 `DATABASE_URL=sqlite:///data/hireflow.db DATA_DIR=data uvicorn app.main:app --reload`。提交前还应执行 `docker compose config`。
 
 正式运行数据以 docker compose 的 PostgreSQL 数据卷为准；`data/hireflow.db` 仅是本地开发的临时 SQLite，启动时自动建表（`main.py` 中的 `Base.metadata.create_all`），可随时删除重建。
+
+项目已从 HireFlow 更名为 PsychicFlow，但以下标识与已有数据绑定，**刻意沿用 `hireflow`，不要随改名修改**：Compose 项目名（`docker-compose.yml` 顶层 `name`）、数据库名/用户/密码、数据卷 `hireflow-postgres`、浏览器存储键 `hireflow.model-config`、`data/hireflow.db`，以及已发布的 Alembic 迁移文件。
 
 ## 编码风格与命名
 

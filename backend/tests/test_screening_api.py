@@ -107,6 +107,7 @@ def test_screen_resume_and_record_human_review(tmp_path) -> None:
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         assert len(exported.content) > 1000
+        assert f'filename="psychic-flow-{run_id}.xlsx"' in exported.headers["content-disposition"]
 
         exported_json = client.get(f"/api/runs/{run_id}/export?format=json")
         assert exported_json.status_code == 200
@@ -140,6 +141,9 @@ def test_screen_resume_and_record_human_review(tmp_path) -> None:
         )
         assert selected["resume_name"] in document_text
         assert other["resume_name"] not in document_text
+        assert "PSYCHICFLOW" in document_text
+        footer_text = "".join(paragraph.text for paragraph in document.sections[0].footer.paragraphs)
+        assert footer_text.startswith("PsychicFlow")
 
         invalid_selection = client.get(
             f"/api/runs/{run_id}/export?format=json&evaluation_id=not-in-this-run"

@@ -46,7 +46,7 @@ class ModelConfig:
     from_request: bool = False
 
 
-_request_config: ContextVar[ModelConfig | None] = ContextVar("hireflow_request_model_config", default=None)
+_request_config: ContextVar[ModelConfig | None] = ContextVar("psychic_flow_request_model_config", default=None)
 
 
 def current_model_config(settings: Settings) -> ModelConfig:

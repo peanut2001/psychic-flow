@@ -1,3 +1,7 @@
+# 项目已更名为 psychic-flow，但 Compose 项目名、数据库与数据卷沿用 hireflow：
+# 固定 name 后无论仓库目录叫什么都使用同一个数据卷，改名会导致已有数据「消失」。
+name: hireflow
+
 services:
   app:
     build: .

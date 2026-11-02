@@ -3,6 +3,7 @@ import type { Evaluation, EvaluationPage, Job, JobPasteResult, PoolAssignResult,
 /** 页面填写的模型连接配置，只保存在本浏览器 localStorage。 */
 export type ModelConfig = { apiKey: string; baseUrl: string; textModel: string; visionModel: string };
 
+// 沿用旧项目名 hireflow，改名会让浏览器里已保存的配置失效。
 const MODEL_CONFIG_KEY = "hireflow.model-config";
 
 export function loadModelConfig(): ModelConfig | null {

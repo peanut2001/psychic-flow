@@ -464,7 +464,7 @@ def _configure_page(document: Document) -> None:
     footer.is_linked_to_previous = False
     paragraph = footer.paragraphs[0]
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = paragraph.add_run("HireFlow  ·  候选人筛选分析  ·  第 ")
+    run = paragraph.add_run("PsychicFlow  ·  候选人筛选分析  ·  第 ")
     set_run_font(run, size=9, color=MUTED)
     begin = OxmlElement("w:fldChar")
     begin.set(qn("w:fldCharType"), "begin")
@@ -577,7 +577,7 @@ def build_docx(items: list[Evaluation]) -> bytes:
     eyebrow = document.add_paragraph()
     eyebrow.alignment = WD_ALIGN_PARAGRAPH.CENTER
     eyebrow.paragraph_format.space_after = Pt(2)
-    eyebrow_run = eyebrow.add_run("HIREFLOW  ·  内部筛选报告")
+    eyebrow_run = eyebrow.add_run("PSYCHICFLOW  ·  内部筛选报告")
     set_run_font(eyebrow_run, size=9, bold=True, color=RUST)
     title = document.add_heading("候选人筛选分析", 0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER

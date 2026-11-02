@@ -93,7 +93,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--rust); box-shado
 .spin { animation: spin 1s linear infinite; }
 .workspace-shell { min-height: 100vh; display: grid; grid-template-columns: 290px minmax(0, 1fr); }
 .workspace-rail { position: sticky; top: 0; height: 100vh; padding: 28px 24px; background: var(--ink); color: #edf1e7; display: flex; flex-direction: column; overflow: hidden; }
-.workspace-rail::after { content: "HF"; position: absolute; bottom: -30px; right: -18px; font-family: Georgia, serif; font-size: 140px; color: rgba(255,255,255,.035); }
+.workspace-rail::after { content: "PF"; position: absolute; bottom: -30px; right: -18px; font-family: Georgia, serif; font-size: 140px; color: rgba(255,255,255,.035); }
 .back-link { border: 0; background: transparent; color: #b9c8c2; cursor: pointer; display: flex; gap: 8px; padding: 0; align-items: center; font-size: 12px; }
 .rail-title { margin: 62px 0 44px; position: relative; z-index: 1; }
 .rail-title h1 { font-family: Georgia, "Songti SC", serif; font-size: 30px; line-height: 1.2; margin: 0 0 12px; font-weight: 500; }

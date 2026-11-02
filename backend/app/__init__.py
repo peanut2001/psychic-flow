@@ -1,2 +1,2 @@
-"""HireFlow 后端应用包。"""
+"""PsychicFlow 后端应用包。"""
 

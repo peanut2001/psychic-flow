@@ -251,7 +251,7 @@ def create_app(
             await screening_runner.shutdown()
             engine.dispose()
 
-    app = FastAPI(title="HireFlow", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="PsychicFlow", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -1231,7 +1231,7 @@ figcaption{{padding:8px 0;text-align:center}}.empty{{padding:60px 20px;text-alig
             if invalid_ids:
                 raise HTTPException(status_code=422, detail="所选候选人不属于当前筛选批次")
             items = [items_by_id[item_id] for item_id in requested_ids]
-        return export_response(items, format, f"hireflow-{run_id}")
+        return export_response(items, format, f"psychic-flow-{run_id}")
 
     @app.get("/api/jobs/{job_id}/export")
     def export_job(
@@ -1263,7 +1263,7 @@ figcaption{{padding:8px 0;text-align:center}}.empty{{padding:60px 20px;text-alig
             if any(item_id not in items_by_id for item_id in requested_ids):
                 raise HTTPException(status_code=422, detail="所选候选人不属于当前岗位")
             items = [items_by_id[item_id] for item_id in requested_ids]
-        return export_response(items, format, f"hireflow-job-{job_id}")
+        return export_response(items, format, f"psychic-flow-job-{job_id}")
 
     @app.post("/api/runs/{run_id}/retry-failed", response_model=RunOut)
     async def retry_failed(run_id: str, session: Session = Depends(get_session)) -> RunOut:

@@ -1,5 +1,5 @@
 [project]
-name = "hireflow"
+name = "psychic-flow"
 version = "0.1.0"
 description = "本地优先的招聘简历智能筛选工作台"
 requires-python = ">=3.11"
