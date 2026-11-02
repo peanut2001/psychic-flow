@@ -1,0 +1,68 @@
+# 推送版本 tag（如 v0.1.0）时：先跑前后端测试，通过后构建镜像并推送到
+# ghcr.io/peanut2001/psychic-flow:0.1.0 和 :latest
+name: 发布 Docker 镜像
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: 安装本地 OCR（扫描版 PDF 的测试需要）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng tesseract-ocr-chi-sim
+
+      - name: 前端测试与构建
+        working-directory: frontend
+        run: |
+          npm ci
+          npm test
+          npm run build
+
+      # 放在前端构建之后：部分接口测试依赖 frontend/dist 存在，与镜像内的运行方式一致
+      - name: 后端测试
+        run: |
+          pip install -e '.[dev]'
+          pytest -q backend/tests
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: type=semver,pattern={{version}}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

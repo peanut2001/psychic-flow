@@ -20,6 +20,8 @@ docker compose down                     # 停止服务，保留数据卷
 
 本地前端使用 `npm run dev`；后端可运行 `DATABASE_URL=sqlite:///data/hireflow.db DATA_DIR=data uvicorn app.main:app --reload`。提交前还应执行 `docker compose config`。
 
+发布镜像：推送 `vX.Y.Z` tag 触发 `.github/workflows/docker-publish.yml`，前后端测试通过后推送 `ghcr.io/peanut2001/psychic-flow:X.Y.Z` 与 `:latest`；CI 中后端测试在前端构建之后运行（部分接口测试依赖 `frontend/dist`）。服务器部署只用 `deploy/` 下的 compose 与 `.env.example`，修改应用的环境变量时两处 compose 要同步。
+
 正式运行数据以 docker compose 的 PostgreSQL 数据卷为准；`data/hireflow.db` 仅是本地开发的临时 SQLite，启动时自动建表（`main.py` 中的 `Base.metadata.create_all`），可随时删除重建。
 
 项目已从 HireFlow 更名为 PsychicFlow，但以下标识与已有数据绑定，**刻意沿用 `hireflow`，不要随改名修改**：Compose 项目名（`docker-compose.yml` 顶层 `name`）、数据库名/用户/密码、数据卷 `hireflow-postgres`、浏览器存储键 `hireflow.model-config`、`data/hireflow.db`，以及已发布的 Alembic 迁移文件。

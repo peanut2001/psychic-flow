@@ -1,0 +1,41 @@
+# 服务器部署：只拉取 GitHub 构建好的镜像，不需要源码
+#   cp .env.example .env    # 填写 APP_VERSION / POSTGRES_PASSWORD，按需填写模型与邮箱配置
+#   docker compose pull && docker compose up -d
+# 应用本身没有登录功能，端口默认只监听本机 127.0.0.1；远程访问请在前面加带访问控制的反向代理或 VPN。
+name: psychic-flow
+
+services:
+  app:
+    image: ghcr.io/peanut2001/psychic-flow:${APP_VERSION:?请在 .env 中设置 APP_VERSION，例如 0.1.0}
+    env_file:
+      - .env
+    environment:
+      # 数据库名与用户沿用 hireflow，与本地开发环境一致，备份可以互相导入
+      DATABASE_URL: postgresql+psycopg://hireflow:${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}@db:5432/hireflow
+      DATA_DIR: /app/data
+    ports:
+      - "127.0.0.1:${APP_PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data   # 简历原件与解析文件
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: hireflow
+      POSTGRES_USER: hireflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hireflow -d hireflow"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

@@ -156,6 +156,64 @@ npm run dev
 ```
 开发服务器运行在 `http://127.0.0.1:5173`，`/api` 请求通过 Vite 代理转发到 `127.0.0.1:8000`。
 
+### 方式三：服务器部署（拉取已发布的镜像）
+
+服务器只需安装 Docker，不需要源码。把 `deploy/` 目录下的 `docker-compose.yml` 和 `.env.example` 上传到 `/opt/psychic-flow`：
+
+```bash
+cd /opt/psychic-flow
+cp .env.example .env    # 填写 APP_VERSION、POSTGRES_PASSWORD，按需填写模型与邮箱配置
+docker compose pull && docker compose up -d
+```
+
+> **安全提醒**：应用本身**没有登录功能**，任何能打开页面的人都能查看全部简历。部署文件默认只监听服务器本机 `127.0.0.1:8000`；需要远程访问时，请在前面加带访问控制的反向代理（如下例的 Basic Auth + HTTPS），或只在内网 / VPN 中使用，不要把端口直接暴露到公网。
+
+Nginx 反向代理示例（证书路径与域名按实际修改）：
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name hr.example.com;
+    ssl_certificate     /etc/nginx/certs/hr.example.com.pem;
+    ssl_certificate_key /etc/nginx/certs/hr.example.com.key;
+
+    client_max_body_size 200m;                   # 批量上传时一次请求包含多份简历
+    auth_basic "PsychicFlow";
+    auth_basic_user_file /etc/nginx/.htpasswd;   # 创建账号：htpasswd -c /etc/nginx/.htpasswd hr
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_read_timeout 300s;
+    }
+}
+```
+
+- **升级**：修改 `.env` 中的 `APP_VERSION`，再执行 `docker compose pull && docker compose up -d`；容器启动时会自动执行数据库迁移。
+- **回滚**：把 `APP_VERSION` 改回旧版本号后同样执行。如果新版本包含数据库迁移，旧镜像无法识别新的表结构，需要先恢复升级前的备份，所以**升级前请先备份**。
+- **备份**：数据库在 `postgres-data` 卷中，简历原件在 `data/` 目录，两者都要备份：
+  ```bash
+  mkdir -p backup
+  docker compose exec -T db pg_dump -U hireflow hireflow | gzip > backup/db-$(date +%F).sql.gz
+  tar czf backup/files-$(date +%F).tar.gz data
+  # crontab 每天 2 点自动备份（crontab 中 % 需要写成 \%）：
+  # 0 2 * * * cd /opt/psychic-flow && docker compose exec -T db pg_dump -U hireflow hireflow | gzip > backup/db-$(date +\%F).sql.gz && tar czf backup/files-$(date +\%F).tar.gz data
+  ```
+
+---
+
+## 📦 发布镜像
+
+镜像由 GitHub Actions 自动构建（`.github/workflows/docker-publish.yml`），**只有推送 `vX.Y.Z` 格式的 tag 才会发布**：先跑前端测试与构建、后端测试，全部通过后推送到 `ghcr.io/peanut2001/psychic-flow:X.Y.Z` 并更新 `:latest`。
+
+```bash
+git push origin main
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+- 构建进度见仓库的 Actions 页面；已发布的版本见仓库首页右侧 Packages。
+- 首次发布后，在 Packages 的镜像设置里确认可见性：设为 Public 后服务器可直接拉取；保持私有则服务器需要先执行 `docker login ghcr.io`（使用有 `read:packages` 权限的 token）。
+
 ---
 
 ## ⚙️ 环境变量
