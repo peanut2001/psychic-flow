@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Res
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import Integer, String, cast, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from .config import Settings
 from .database import Base, create_database
@@ -903,11 +903,15 @@ figcaption{{padding:8px 0;text-align:center}}.empty{{padding:60px 20px;text-alig
         total = session.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0
         items = list(
             session.scalars(
-                query.order_by(ScreeningRun.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+                query.options(selectinload(ScreeningRun.evaluations))
+                .order_by(ScreeningRun.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
             ).all()
         )
+        # runner 只在整批结束时回写计数，列表需按评估状态实时统计进度。
         return RunPage(
-            items=[serialize_run(item) for item in items],
+            items=[serialize_run(item, refresh_counts=True) for item in items],
             page=page,
             page_size=page_size,
             total=total,

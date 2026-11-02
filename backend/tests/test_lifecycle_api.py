@@ -281,6 +281,74 @@ def test_cancel_run_stays_canceled_even_if_evaluator_finishes_late(tmp_path) -> 
         assert all(item["result"] is None for item in evaluations)
 
 
+def test_run_list_reports_live_progress_while_running(tmp_path) -> None:
+    """任务中心列表在任务运行中也要反映已完成份数，而不是结束后才更新。"""
+
+    import asyncio
+    import threading
+
+    class SecondCallBlocksEvaluator:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.blocked = threading.Event()
+            self.release = threading.Event()
+
+        async def evaluate(self, *, jd_text: str, prompt: str, resume_text: str, scoring_profile=None):
+            self.calls += 1
+            if self.calls > 1:
+                self.blocked.set()
+                while not self.release.is_set():
+                    await asyncio.sleep(0.01)
+            return EvaluationCard.model_validate(
+                {
+                    "candidate": {"name": "进度"},
+                    "overall_score": 80,
+                    "match_level": "medium",
+                    "confidence": 0.9,
+                    "summary": "进度测试",
+                    "criteria": [],
+                    "strengths": [],
+                    "gaps": [],
+                    "risk_flags": [],
+                    "interview_questions": [],
+                }
+            )
+
+    evaluator = SecondCallBlocksEvaluator()
+    app = create_app(
+        database_url=f"sqlite:///{tmp_path / 'test.db'}",
+        data_dir=tmp_path / "data",
+        evaluator=evaluator,
+    )
+    with TestClient(app) as client:
+        job, first = create_dossier(client)
+        document = Document()
+        document.add_heading("周岚", level=1)
+        document.add_paragraph("三年 Go 开发经验")
+        buffer = BytesIO()
+        document.save(buffer)
+        second = client.post(
+            f"/api/jobs/{job['id']}/resumes",
+            files=[("files", ("周岚.docx", buffer.getvalue(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))],
+        ).json()["uploaded"][0]
+        run = client.post(f"/api/jobs/{job['id']}/runs", json={"resume_ids": [first["id"], second["id"]]}).json()
+        try:
+            assert evaluator.blocked.wait(2)
+            for _ in range(100):
+                statuses = [item["status"] for item in client.get(f"/api/runs/{run['id']}/evaluations").json()]
+                if "completed" in statuses:
+                    break
+                time.sleep(0.02)
+            listed = client.get(f"/api/jobs/{job['id']}/runs").json()["items"][0]
+            assert listed["id"] == run["id"]
+            assert listed["status"] == "running"
+            assert listed["completed_count"] == 1
+            assert listed["total_count"] == 2
+        finally:
+            evaluator.release.set()
+        assert wait_for_run(client, run["id"])["completed_count"] == 2
+
+
 def test_invalid_prompt_weights_rejected_on_create_run(tmp_path) -> None:
     app = create_app(database_url=f"sqlite:///{tmp_path / 'test.db'}", data_dir=tmp_path / "data")
     with TestClient(app) as client:

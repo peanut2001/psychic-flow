@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 
 import App, { EvaluationDetail, ResultsDesk, ResumeDesk } from "./App";
@@ -249,6 +249,40 @@ test("未识别姓名回退到简历文件名，评估失败不显示为解析�
   expect(screen.getByText("侯东鹏_11年.pdf")).toBeInTheDocument();
   expect(screen.getByText("评估模型未返回结果，不是简历文件解析失败，请重试")).toBeInTheDocument();
   expect(screen.queryByText("解析失败")).not.toBeInTheDocument();
+});
+
+test("筛选结果页展示进行中的筛选进度，并标出正在重评的旧结果", async () => {
+  const evaluation = (id: string, runId: string, resumeId: string, name: string, status: string, score?: number): Evaluation => ({
+    id, run_id: runId, resume_id: resumeId, resume_name: `${name}.pdf`, status,
+    result: score == null ? null : { candidate: { name, current_role: "工程师" }, overall_score: score, match_level: "medium", confidence: 0.9, summary: "上一次的评分摘要", criteria: [], strengths: [], gaps: [], risk_flags: [], interview_questions: [] },
+    error: null, attempts: 1, review_status: "pending", review_note: "", screened_at: "2026-11-02T09:47:00Z", updated_at: "2026-11-02T09:47:00Z",
+  });
+  const run = (id: string, status: string, completed: number) => ({ id, job_id: "job-1", status, total_count: 2, completed_count: completed, failed_count: 0, text_model: "gpt-6.1-sol", vision_model: "gpt-6.1-sol", created_at: "2026-11-02T09:50:56Z", started_at: "2026-11-02T09:50:56Z", completed_at: null });
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/jobs/job-1/evaluations")) {
+      return new Response(JSON.stringify({ items: [evaluation("evaluation-old", "run-old", "resume-a", "周明", "completed", 70)], page: 1, page_size: 10, total: 1, total_pages: 1 }));
+    }
+    if (url.includes("/api/jobs/job-1/runs")) {
+      return new Response(JSON.stringify({ items: [run("run-new", "running", 1), run("run-old", "completed", 2)], page: 1, page_size: 20, total: 2, total_pages: 1 }));
+    }
+    if (url === "/api/runs/run-new/evaluations") {
+      return new Response(JSON.stringify([evaluation("evaluation-new-a", "run-new", "resume-a", "周明", "evaluating"), evaluation("evaluation-new-b", "run-new", "resume-b", "安然", "completed", 88)]));
+    }
+    return new Response(JSON.stringify([]));
+  }));
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+  render(<QueryClientProvider client={queryClient}><ResultsDesk jobId="job-1" /></QueryClientProvider>);
+  const panel = await screen.findByRole("region", { name: "进行中的筛选任务" });
+  expect(within(panel).getByText("1 / 2")).toBeInTheDocument();
+  expect(within(panel).getByRole("progressbar", { name: "筛选进度" })).toHaveAttribute("aria-valuenow", "50");
+  expect(await within(panel).findByText("周明.pdf")).toBeInTheDocument();
+  expect(within(panel).getByText("评分中")).toBeInTheDocument();
+  expect(within(panel).getByText("安然.pdf")).toBeInTheDocument();
+  expect(within(panel).getByText("已完成")).toBeInTheDocument();
+  expect(screen.getByTestId("candidate-name")).toHaveTextContent("周明");
+  expect(screen.getByText("重评中")).toBeInTheDocument();
 });
 
 test("创建岗位时展示编译后的计分维度", async () => {
